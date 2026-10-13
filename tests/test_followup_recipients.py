@@ -101,6 +101,24 @@ class FollowUpRecipientsTests(TestCase):
         self.assertNotIn("submitter@example.com", followup.email_recipients)
         self.assertIn("watcher@example.com", followup.email_recipients)
 
+    def test_reopened_update_uses_reopened_template_for_submitter(self):
+        self.ticket.assigned_to = self.staff_user
+        self.ticket.status = Ticket.CLOSED_STATUS
+        self.ticket.save()
+
+        update_ticket(
+            user=self.staff_user,
+            ticket=self.ticket,
+            new_status=Ticket.REOPENED_STATUS,
+            public=True,
+        )
+
+        self.assertEqual(len(mail.outbox), 3)
+        submitter_email = next(
+            message for message in mail.outbox if message.to == ["submitter@example.com"]
+        )
+        self.assertIn("(Reopened)", submitter_email.subject)
+
     def test_inbound_reply_records_who_the_acknowledgement_went_to(self):
         message = (
             f"To: {self.queue.email_address}\n"
