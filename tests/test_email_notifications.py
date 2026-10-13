@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from helpdesk import settings as helpdesk_settings
 from helpdesk.forms import TicketForm
-from helpdesk.models import Queue, Ticket
+from helpdesk.models import EmailTemplate, Queue, Ticket
 from helpdesk.update_ticket import update_ticket
 from helpdesk.views.staff import get_user_queues
 
@@ -181,7 +181,7 @@ class TicketEmailNotificationTests(TestCase):
             "Ticket assigned user email not found in email notifications sent.",
         )
 
-        # Update the ticket status to REOPENED so submitter should not be emailed.
+        # Update the ticket status to REOPENED so submitter should be emailed.
         self.outbox.clear()  # Remove the prior emails
         update_ticket(
             self.update_user,
@@ -193,8 +193,12 @@ class TicketEmailNotificationTests(TestCase):
         recipient_list = [email.to[0] for email in self.outbox]
         self.assertEqual(
             email_cnt,
-            1,
-            f"3. Expected to send 1 email notification. {email_cnt} were sent: {recipient_list}",
+            2,
+            f"3. Expected to send 2 email notifications. {email_cnt} were sent: {recipient_list}",
+        )
+        self.assertTrue(
+            self.existing_ticket.submitter_email in recipient_list,
+            "Submitter email not found in email notifications sent.",
         )
         self.assertTrue(
             self.assigned_user.email in recipient_list,
@@ -224,6 +228,21 @@ class TicketEmailNotificationTests(TestCase):
             self.assigned_user.email in recipient_list,
             "Ticket assigned user email not found in email notifications sent.",
         )
+
+    def test_reopened_ticket_uses_reopened_templates(self):
+        EmailTemplate.objects.filter(template_name__startswith="reopened_").delete()
+
+        update_ticket(
+            self.update_user,
+            self.existing_ticket,
+            new_status=Ticket.REOPENED_STATUS,
+            comment="Reopening this ticket.",
+            public=True,
+        )
+
+        self.assertEqual(len(self.outbox), 1)
+        self.assertEqual(self.outbox[0].to, [self.existing_ticket.submitter_email])
+        self.assertIn("(Reopened)", self.outbox[0].subject)
 
     def test_update_ticket_always_notify_submitter(self):
         """
