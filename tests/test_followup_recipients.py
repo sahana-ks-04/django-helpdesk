@@ -2,7 +2,7 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.core import mail
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from helpdesk import settings as helpdesk_settings
@@ -118,6 +118,58 @@ class FollowUpRecipientsTests(TestCase):
             sorted({address for message in mail.outbox for address in message.to}),
         )
         self.assertIn("submitter@example.com", followup.email_recipients)
+
+
+class ReopenedTicketNotificationTests(TestCase):
+    def setUp(self):
+        self.queue = Queue.objects.create(
+            title="Products",
+            slug="products",
+            email_address="products@example.com",
+            updated_ticket_cc="queuecc@example.com",
+            enable_notifications_on_email_events=True,
+        )
+        self.staff_user = User.objects.create_user(
+            username="staffuser",
+            password="testpass123",
+            email="staff@example.com",
+            is_staff=True,
+        )
+        self.ticket = Ticket.objects.create(
+            title="Product not received",
+            submitter_email="submitter@example.com",
+            queue=self.queue,
+            status=Ticket.CLOSED_STATUS,
+        )
+        TicketCC.objects.create(ticket=self.ticket, email="watcher@example.com")
+        mail.outbox.clear()
+
+    def test_public_reopen_without_comment_notifies_submitter_with_reopened_template(self):
+        update_ticket(
+            user=self.staff_user,
+            ticket=self.ticket,
+            comment="",
+            public=True,
+            new_status=Ticket.REOPENED_STATUS,
+        )
+
+        self.assertEqual(len(mail.outbox), 3)
+        submitter_message = next(
+            message
+            for message in mail.outbox
+            if message.to == ["submitter@example.com"]
+        )
+        self.assertIn("(Reopened)", submitter_message.subject)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_reopened_templates_exist_as_fallback_records(self):
+        self.assertTrue(EmailTemplate.objects.filter(template_name="reopened_cc").exists())
+        self.assertTrue(
+            EmailTemplate.objects.filter(template_name="reopened_owner").exists()
+        )
+        self.assertTrue(
+            EmailTemplate.objects.filter(template_name="reopened_submitter").exists()
+        )
 
 
 class FollowUpRecipientsDisplayTests(TestCase):
