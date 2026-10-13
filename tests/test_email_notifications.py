@@ -14,6 +14,8 @@ User = get_user_model()
 
 
 class TicketEmailNotificationTests(TestCase):
+    fixtures = ["emailtemplate.json"]
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -181,7 +183,7 @@ class TicketEmailNotificationTests(TestCase):
             "Ticket assigned user email not found in email notifications sent.",
         )
 
-        # Update the ticket status to REOPENED so submitter should not be emailed.
+        # Update the ticket status to REOPENED so submitter should be emailed.
         self.outbox.clear()  # Remove the prior emails
         update_ticket(
             self.update_user,
@@ -193,8 +195,12 @@ class TicketEmailNotificationTests(TestCase):
         recipient_list = [email.to[0] for email in self.outbox]
         self.assertEqual(
             email_cnt,
-            1,
-            f"3. Expected to send 1 email notification. {email_cnt} were sent: {recipient_list}",
+            2,
+            f"3. Expected to send 2 email notifications. {email_cnt} were sent: {recipient_list}",
+        )
+        self.assertTrue(
+            self.existing_ticket.submitter_email in recipient_list,
+            "Submitter email not found in email notifications sent.",
         )
         self.assertTrue(
             self.assigned_user.email in recipient_list,
@@ -296,6 +302,10 @@ class TicketEmailNotificationTests(TestCase):
         self.assertTrue(
             self.assigned_user.email in recipient_list,
             "Ticket assigned user email not found in email notifications sent.",
+        )
+        self.assertTrue(
+            all("(Reopened)" in email.subject for email in self.outbox),
+            f"Expected reopened email subjects, got {[email.subject for email in self.outbox]}",
         )
 
         # Update the ticket status to CLOSED - submitter should be emailed.
